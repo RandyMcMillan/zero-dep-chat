@@ -5,7 +5,8 @@ use mio::{Events, Interest, Poll, Token};
 use std::env;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
-use std::os::unix::io::AsRawFd; // Unix-specific raw file descriptor support
+use std::os::unix::io::AsRawFd;
+use std::time::Duration; // Unix-specific raw file descriptor support
 
 /// Struct for command-line argument parsing using `clap`.
 #[derive(Parser)]
@@ -34,22 +35,21 @@ fn main() -> io::Result<()> {
     let port = env::var("PORT").unwrap_or(args.port);
     let username = env::var("USERNAME").unwrap_or(args.username);
 
-    // Create a client socket and initiate a connection
+    // Create a stream socket and initiate a connection
     let address = format!("{}:{}", host, port);
     let server_address: SocketAddr = address.parse().unwrap();
     let mut stream = TcpStream::connect(server_address)?;
-    writeln!(&mut stream, "{}", username).expect("Failed to write");
-    println!("Connected to the server at {} as {}", &address, &username);
+    println!("Connecting to server at {} as {}", &address, &username);
 
-    // Get a handle to the client's standard input stream 
+    // We'll need the raw file descriptor for the standard input stream
     let stdin = io::stdin();
-    let stdin_fd = stdin.as_raw_fd(); // Get raw file descriptor
+    let stdin_fd = stdin.as_raw_fd();
 
     // Set up polling to handle both stdin and the TCP stream
     let mut poll = Poll::new()?;
     let mut events = Events::with_capacity(128);
 
-    // Register the server connection with the Poll instance
+    // Register the connection with the Poll instance
     poll.registry()
         .register(&mut stream, SERVER, Interest::READABLE | Interest::WRITABLE)?;
 
@@ -57,13 +57,17 @@ fn main() -> io::Result<()> {
     poll.registry()
         .register(&mut SourceFd(&stdin_fd), STDIN, Interest::READABLE)?;
 
-    let mut input_buffer = Vec::new();
-    let mut server_buffer = [0; 512];
+    const BUF_SIZE: usize = 512;
+    let mut input_buffer = [0; BUF_SIZE];
+    let mut server_buffer = [0; BUF_SIZE];
+    let mut ready_to_send = false;
+    let mut username_sent = false;
 
     // Main event loop
     loop {
-        poll.poll(&mut events, None)?;
+        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
+        println!("events count: {}", events.iter().count());
         for event in events.iter() {
             match event.token() {
                 SERVER => {
@@ -73,8 +77,9 @@ fn main() -> io::Result<()> {
                                 println!("Connection closed by server.");
                                 return Ok(());
                             }
-                            Ok(n) => {
-                                let msg = String::from_utf8_lossy(&server_buffer[..n]);
+                            Ok(_n) => {
+                                let msg = String::from_utf8_lossy(&server_buffer[..]);
+                                println!("{}", msg);
                                 println!("Server: {}", msg);
                             }
                             Err(e) => {
@@ -84,14 +89,26 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    if event.is_writable() && !input_buffer.is_empty() {
-                        match stream.write(&input_buffer) {
-                            Ok(n) => {
-                                input_buffer.drain(..n);
-                            }
-                            Err(e) => {
-                                eprintln!("Error writing to server: {}", e);
-                                return Err(e);
+                    if event.is_writable() {
+                        println!("in writable");
+                        if !username_sent {
+                            stream.write_all(username.as_bytes())?;
+                            username_sent = true;
+                        } else if ready_to_send {
+                            match stream.write_all(&input_buffer) {
+                                Ok(_n) => {
+                                    println!("stream_ok");
+                                    ready_to_send = false;
+                                    poll.registry().reregister(
+                                        &mut stream,
+                                        SERVER,
+                                        Interest::READABLE.add(Interest::WRITABLE),
+                                    )?;
+                                }
+                                Err(e) => {
+                                    eprintln!("Error writing to server: {}", e);
+                                    return Err(e);
+                                }
                             }
                         }
                     }
@@ -99,18 +116,17 @@ fn main() -> io::Result<()> {
 
                 STDIN => {
                     // Handle input from STDIN
-                    // println!("in STDIN input");
                     let mut input = String::new();
-                    stdin
-                        .read_line(&mut input)
-                        .expect("Failed to read input");
+                    stdin.read_line(&mut input).expect("Failed to read input");
                     input = input.trim().to_string();
-                    // println!("in STDIN again");
+
                     if input.starts_with("send ") {
                         let message = format!("[{}]: {}", username, &input[5..]);
-                        input_buffer.extend_from_slice(message.as_bytes());
-                        // writeln!(&mut stream, "{}", message).expect("Failed to write");
-                        // println!("msg: {} input buffer: {:?}", &message, &input_buffer);
+                        let msg_len = message.as_bytes().len();
+                        input_buffer[..msg_len].copy_from_slice(message.as_bytes());
+                        ready_to_send = true;
+                        poll.registry()
+                            .reregister(&mut stream, SERVER, Interest::WRITABLE)?;
                     } else if input == "leave" {
                         println!("Disconnecting...");
                         return Ok(());

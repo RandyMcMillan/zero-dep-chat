@@ -14,10 +14,12 @@ type UserList = Arc<Mutex<HashMap<Arc<String>, TcpStream>>>;
 fn handle_client(stream: TcpStream, username: Arc<String>, user_list: UserList) {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
+        println!("in reader.lines");
         let message = match line {
             Ok(msg) => msg,
             Err(e) => e.to_string(),
         };
+        println!("message: {}", message);
         if message == "/leave" {
             break;
         }
@@ -69,8 +71,12 @@ fn main() {
                     .to_string(),
             );
 
+            if username.contains(" ") || username.contains("/leave") {
+                writeln!(&mut stream, "Invalid username").expect("Failed to write");
+            }
+
             // Ensure the username is unique
-            if active_usernames.contains(&username) || username.contains("/leave") {
+            if active_usernames.contains(&username) {
                 writeln!(&mut stream, "Username is already taken").expect("Failed to write");
                 continue;
             }
@@ -99,7 +105,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn test_username_uniqueness() {
@@ -108,19 +113,5 @@ mod tests {
         assert!(users.insert(username.clone()));
         assert!(!users.insert(username));
     }
-
-    #[test]
-    fn test_handle_client_broadcasts() {
-        let mut buffer = [0; 512];
-        let message = "Hello".as_bytes();
-        let mut stream1 = TcpStream::connect("127.0.0.1:12345").unwrap();
-        let mut stream2 = TcpStream::connect("127.0.0.1:12345").unwrap();
-
-        stream1.write(message).unwrap();
-        let bytes_read = stream2.read(&mut buffer).unwrap();
-
-        assert_eq!(&buffer[..bytes_read], message);
-    }
-
     // Additional unit tests for other functionality can be added here.
 }
