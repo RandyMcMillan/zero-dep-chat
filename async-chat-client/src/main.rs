@@ -67,7 +67,7 @@ fn main() -> io::Result<()> {
     loop {
         poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
-        println!("events count: {}", events.iter().count());
+        // println!("events count: {}", events.iter().count());
         for event in events.iter() {
             match event.token() {
                 SERVER => {
@@ -77,10 +77,9 @@ fn main() -> io::Result<()> {
                                 println!("Connection closed by server.");
                                 return Ok(());
                             }
-                            Ok(_n) => {
+                            Ok(n) => {
                                 let msg = String::from_utf8_lossy(&server_buffer[..]);
-                                println!("{}", msg);
-                                println!("Server: {}", msg);
+                                println!("{} bytes: {}", n, msg);
                             }
                             Err(e) => {
                                 eprintln!("Error reading from server: {}", e);
@@ -90,14 +89,12 @@ fn main() -> io::Result<()> {
                     }
 
                     if event.is_writable() {
-                        println!("in writable");
                         if !username_sent {
                             stream.write_all(username.as_bytes())?;
                             username_sent = true;
                         } else if ready_to_send {
                             match stream.write_all(&input_buffer) {
-                                Ok(_n) => {
-                                    println!("stream_ok");
+                                Ok(_) => {
                                     ready_to_send = false;
                                     poll.registry().reregister(
                                         &mut stream,
