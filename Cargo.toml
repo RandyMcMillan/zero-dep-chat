@@ -1,0 +1,33 @@
+[workspace]
+resolver = '2'
+members = ["chat-server", "chat-client", "async-chat-client"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Nihal Pasham"]
+edition = "2021"
+description = "A chat app with zero dependencies using non-blocking I/O"
+license = "MIT"
+readme = "README.md"
+keywords = ["no-dep", "chat"]
+documentation = "https://github.com/nihalpasham/zero-dep-chat"
+repository = "https://github.com/nihalpasham/zero-dep-chat"
+
+[workspace.lints.rust]
+# Turn on some lints which are otherwise allow-by-default in rustc.
+unstable_features = 'warn'
+unused_import_braces = 'warn'
+
+[workspace.lints.clippy]
+# The default set of lints in Clippy is viewed as "too noisy" right now so
+# they're all turned off by default. Selective lints are then enabled below as
+# necessary.
+all = { level = 'allow', priority = -1 }
+clone_on_copy = 'warn'
+map_clone = 'warn'
+uninlined_format_args = 'warn'
+unnecessary_to_owned = 'warn'
+manual_strip = 'warn'
+unnecessary_mut_passed = 'warn'
+unnecessary_fallible_conversions = 'warn'
+unnecessary_cast = 'warn'

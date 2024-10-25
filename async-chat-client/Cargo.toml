@@ -1,0 +1,16 @@
+[package]
+name = "async-chat-client"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+readme.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
