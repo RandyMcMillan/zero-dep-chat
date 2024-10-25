@@ -6,7 +6,7 @@ use std::env;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
-use std::time::Duration; // Unix-specific raw file descriptor support
+// use std::time::Duration; // Unix-specific raw file descriptor support
 
 /// Struct for command-line argument parsing using `clap`.
 #[derive(Parser)]
@@ -60,6 +60,7 @@ fn main() -> io::Result<()> {
     const BUF_SIZE: usize = 512;
     let mut input_buffer = [0; BUF_SIZE];
     let mut server_buffer = [0; BUF_SIZE];
+    let mut bytes_to_send = 0;
     let mut ready_to_send = false;
     let mut username_sent = false;
 
@@ -78,7 +79,7 @@ fn main() -> io::Result<()> {
                                 return Ok(());
                             }
                             Ok(n) => {
-                                let msg = String::from_utf8_lossy(&server_buffer[..]);
+                                let msg = String::from_utf8_lossy(&server_buffer[..n]);
                                 println!("{} bytes: {}", n, msg);
                             }
                             Err(e) => {
@@ -90,18 +91,16 @@ fn main() -> io::Result<()> {
 
                     if event.is_writable() {
                         if !username_sent {
-                            stream.write_all(username.as_bytes())?;
+                            stream.write(username.as_bytes())?;
                             username_sent = true;
-                        } else if ready_to_send {
-                            match stream.write_all(&input_buffer) {
-                                Ok(_) => {
+                        }
+                        if ready_to_send {
+                            match stream.write(&input_buffer[..bytes_to_send]) {
+                                Ok(n) => {
+                                    println!("bytes written: {}", n);
                                     ready_to_send = false;
-                                    poll.registry().reregister(
-                                        &mut stream,
-                                        SERVER,
-                                        Interest::READABLE.add(Interest::WRITABLE),
-                                    )?;
                                 }
+                                Err(ref err) if would_block(err) => {}
                                 Err(e) => {
                                     eprintln!("Error writing to server: {}", e);
                                     return Err(e);
@@ -118,12 +117,17 @@ fn main() -> io::Result<()> {
                     input = input.trim().to_string();
 
                     if input.starts_with("send ") {
-                        let message = format!("[{}]: {}", username, &input[5..]);
+                        let message = format!("[{}]: {}\n", username, &input[5..]);
+                        // println!("message: {}", message);
                         let msg_len = message.as_bytes().len();
                         input_buffer[..msg_len].copy_from_slice(message.as_bytes());
+                        bytes_to_send = msg_len;
+                        poll.registry().reregister(
+                            &mut stream,
+                            SERVER,
+                            Interest::READABLE | Interest::WRITABLE,
+                        )?;
                         ready_to_send = true;
-                        poll.registry()
-                            .reregister(&mut stream, SERVER, Interest::WRITABLE)?;
                     } else if input == "leave" {
                         println!("Disconnecting...");
                         return Ok(());
@@ -136,4 +140,8 @@ fn main() -> io::Result<()> {
             }
         }
     }
+}
+
+fn would_block(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::WouldBlock
 }

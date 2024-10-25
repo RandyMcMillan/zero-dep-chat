@@ -6,12 +6,18 @@ use std::thread;
 
 /// Type alias for the list of users connected to the chat server
 type UserList = Arc<Mutex<HashMap<Arc<String>, TcpStream>>>;
+type ActiveUsers = Arc<Mutex<HashSet<Arc<String>>>>;
 
 /// Handles a connected client.
-/// 
+///
 /// This function processes messages sent by the client and broadcasts them to
 /// other connected users. It also removes the user from the list when they leave.
-fn handle_client(stream: TcpStream, username: Arc<String>, user_list: UserList) {
+fn handle_client(
+    stream: TcpStream,
+    username: Arc<String>,
+    user_list: UserList,
+    active_usrs: ActiveUsers,
+) {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         println!("in reader.lines");
@@ -35,6 +41,7 @@ fn handle_client(stream: TcpStream, username: Arc<String>, user_list: UserList) 
 
     // Cleanup after user leaves
     user_list.lock().unwrap().remove(&username);
+    active_usrs.lock().unwrap().remove(&username);
     println!("User {} has left", username);
 }
 
@@ -44,7 +51,7 @@ fn handle_client(stream: TcpStream, username: Arc<String>, user_list: UserList) 
 fn main() {
     let listener = TcpListener::bind("0.0.0.0:12345").expect("Failed to bind");
     let user_list = Arc::new(Mutex::new(HashMap::new()));
-    let mut active_usernames = HashSet::new();
+    let active_usernames = Arc::new(Mutex::new(HashSet::new()));
     let mut stream;
 
     for s in listener.incoming() {
@@ -76,7 +83,7 @@ fn main() {
             }
 
             // Ensure the username is unique
-            if active_usernames.contains(&username) {
+            if active_usernames.lock().unwrap().contains(&username) {
                 writeln!(&mut stream, "Username is already taken").expect("Failed to write");
                 continue;
             }
@@ -88,7 +95,7 @@ fn main() {
 
         // Register user
         println!("User {} has joined", usr.as_str());
-        active_usernames.insert(usr.clone());
+        active_usernames.lock().unwrap().insert(usr.clone());
         user_list
             .lock()
             .unwrap()
@@ -96,8 +103,9 @@ fn main() {
 
         // Spawn a new thread to handle this client's connection
         let user_list_clone = Arc::clone(&user_list);
+        let active_usrs_clone = Arc::clone(&active_usernames);
         thread::spawn(move || {
-            handle_client(stream, usr, user_list_clone);
+            handle_client(stream, usr, user_list_clone, active_usrs_clone);
         });
     }
 }
