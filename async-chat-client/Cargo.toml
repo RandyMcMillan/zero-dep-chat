@@ -11,6 +11,9 @@ documentation.workspace = true
 repository.workspace = true
 
 [dependencies]
+mio = { version = "1.0.2", features = ["net", "os-ext", "os-poll"] }
+clap = { version = "4.0", features = ["derive"] }
+
 
 [lints]
 workspace = true

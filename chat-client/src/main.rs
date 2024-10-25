@@ -1,11 +1,11 @@
 use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-static SERVER_DISCONNECTED: OnceLock<bool> = OnceLock::new();
+// static SERVER_DISCONNECTED: OnceLock<bool> = OnceLock::new();
 
 /// Function to display the client prompt and handle user input
 fn client_prompt(stream: Arc<Mutex<TcpStream>>) {
@@ -15,6 +15,7 @@ fn client_prompt(stream: Arc<Mutex<TcpStream>>) {
 
     loop {
         match lines.next() {
+            // Reading from `Stdin` is a blocking operation.
             Some(Ok(line)) => {
                 if line.starts_with("send ") {
                     let msg = line[5..].to_string();
@@ -28,12 +29,14 @@ fn client_prompt(stream: Arc<Mutex<TcpStream>>) {
                     println!("Invalid command. Use 'send <MSG>' or 'leave'");
                 }
             }
-            Some(Err(e)) => {println!("Read error: {}", e);}
+            Some(Err(e)) => {
+                println!("Read error: {}", e);
+            }
             None => {
-                if *SERVER_DISCONNECTED.get().unwrap_or(&false) {
-                    println!("Disconnecting from the server...");
-                    break;
-                }
+                // if *SERVER_DISCONNECTED.get().unwrap_or(&false) {
+                //     println!("Disconnecting from the server...");
+                //     break;
+                // }
             }
         }
     }
@@ -55,7 +58,7 @@ fn listen_for_messages(stream: Arc<Mutex<TcpStream>>, first_connect: bool) {
             match reader.read_line(&mut buffer) {
                 Ok(0) => {
                     println!("Server disconnected.");
-                    SERVER_DISCONNECTED.get_or_init(|| true);
+                    // SERVER_DISCONNECTED.get_or_init(|| true);
                     break;
                 }
                 Ok(_) => {
@@ -81,7 +84,12 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     let (host, port, username) = match args.len() {
-        4 => (&args[1], &args[2], &args[3]),
+        4 => {
+            if &args[3] == "" {
+                panic!("No username provided!")
+            }
+            (&args[1], &args[2], &args[3])
+        }
         3 => (
             &args[1],
             &args[2],
