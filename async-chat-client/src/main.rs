@@ -65,7 +65,7 @@ fn main() -> io::Result<()> {
 
     // Main event loop
     loop {
-        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
+        poll.poll(&mut events, None)?;
 
         // println!("events count: {}", events.iter().count());
         for event in events.iter() {
