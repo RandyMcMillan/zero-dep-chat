@@ -102,16 +102,19 @@ fn main() -> io::Result<()> {
                         if !input_buffer.is_empty() {
                             loop {
                                 match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
+                                    // Continue writing until we hit a `WouldBlock`
                                     Ok(n) if n < bytes_to_send => {
                                         println!("bytes written: {}", n);
                                         bytes_written += n;
                                         continue;
                                     }
+                                    // Our data buffer has been exhausted i.e. we have sent everything we need to
                                     Ok(v) => {
                                         input_buffer.clear();
                                         println!("Write Ok: {}", v);
                                         break;
                                     }
+                                    // Encountered a `WouldBlock`, stop and poll again for readiness
                                     Err(ref err) if would_block(err) => {
                                         println!("{}", io::ErrorKind::WouldBlock);
                                         break;
@@ -139,6 +142,8 @@ fn main() -> io::Result<()> {
                         input_buffer.clear();
                         input_buffer.extend_from_slice(message.as_bytes());
                         bytes_to_send = msg_len;
+                        // God knows why this doesn't work with out re-registering.
+                        // Apparently, its not required, very inefficient. 
                         poll.registry().reregister(
                             &mut stream,
                             SERVER,
