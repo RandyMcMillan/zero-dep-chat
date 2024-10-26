@@ -37,6 +37,7 @@ fn main() -> io::Result<()> {
 
     // Create a stream socket and initiate a connection
     let address = format!("{}:{}", host, port);
+    let username = format!("{}\n", username);
     let server_address: SocketAddr = address.parse().unwrap();
     let mut stream = TcpStream::connect(server_address)?;
     println!("Connecting to server at {} as {}", &address, &username);
@@ -58,17 +59,15 @@ fn main() -> io::Result<()> {
         .register(&mut SourceFd(&stdin_fd), STDIN, Interest::READABLE)?;
 
     const BUF_SIZE: usize = 512;
-    let mut input_buffer = [0; BUF_SIZE];
+    let mut input_buffer = Vec::new();
     let mut server_buffer = [0; BUF_SIZE];
     let mut bytes_to_send = 0;
-    let mut ready_to_send = false;
     let mut username_sent = false;
 
     // Main event loop
     loop {
         poll.poll(&mut events, None)?;
 
-        // println!("events count: {}", events.iter().count());
         for event in events.iter() {
             match event.token() {
                 SERVER => {
@@ -80,8 +79,9 @@ fn main() -> io::Result<()> {
                             }
                             Ok(n) => {
                                 let msg = String::from_utf8_lossy(&server_buffer[..n]);
-                                println!("{} bytes: {}", n, msg);
+                                println!("{}", msg.trim());
                             }
+                            Err(ref err) if would_block(err) => {}
                             Err(e) => {
                                 eprintln!("Error reading from server: {}", e);
                                 return Err(e);
@@ -89,21 +89,37 @@ fn main() -> io::Result<()> {
                         }
                     }
 
+                    let mut bytes_written = 0;
                     if event.is_writable() {
+                        println!("event is writable: {}", event.is_writable());
                         if !username_sent {
-                            stream.write(username.as_bytes())?;
+                            let username_len = username.len();
+                            bytes_to_send = username_len;
+                            input_buffer.extend_from_slice(username.as_bytes());
+                            println!("username copied to input buffer");
                             username_sent = true;
                         }
-                        if ready_to_send {
-                            match stream.write(&input_buffer[..bytes_to_send]) {
-                                Ok(n) => {
-                                    println!("bytes written: {}", n);
-                                    ready_to_send = false;
-                                }
-                                Err(ref err) if would_block(err) => {}
-                                Err(e) => {
-                                    eprintln!("Error writing to server: {}", e);
-                                    return Err(e);
+                        if !input_buffer.is_empty() {
+                            loop {
+                                match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
+                                    Ok(n) if n < bytes_to_send => {
+                                        println!("bytes written: {}", n);
+                                        bytes_written += n;
+                                        continue;
+                                    }
+                                    Ok(v) => {
+                                        input_buffer.clear();
+                                        println!("Write Ok: {}", v);
+                                        break;
+                                    }
+                                    Err(ref err) if would_block(err) => {
+                                        println!("{}", io::ErrorKind::WouldBlock);
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error writing to server: {}", e);
+                                        return Err(e);
+                                    }
                                 }
                             }
                         }
@@ -117,17 +133,18 @@ fn main() -> io::Result<()> {
                     input = input.trim().to_string();
 
                     if input.starts_with("send ") {
-                        let message = format!("[{}]: {}\n", username, &input[5..]);
-                        // println!("message: {}", message);
-                        let msg_len = message.as_bytes().len();
-                        input_buffer[..msg_len].copy_from_slice(message.as_bytes());
+                        let message = format!("{}\n", &input[5..]);
+                        println!("message: {}", message);
+                        let msg_len = message.len();
+                        input_buffer.clear();
+                        input_buffer.extend_from_slice(message.as_bytes());
                         bytes_to_send = msg_len;
                         poll.registry().reregister(
                             &mut stream,
                             SERVER,
                             Interest::READABLE | Interest::WRITABLE,
                         )?;
-                        ready_to_send = true;
+                        // ready_to_send = true;
                     } else if input == "leave" {
                         println!("Disconnecting...");
                         return Ok(());
