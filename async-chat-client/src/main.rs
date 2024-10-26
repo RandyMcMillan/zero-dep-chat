@@ -62,6 +62,7 @@ fn main() -> io::Result<()> {
     let mut input_buffer = Vec::new();
     let mut server_buffer = [0; BUF_SIZE];
     let mut bytes_to_send = 0;
+    let mut bytes_written = 0;
     let mut username_sent = false;
 
     // Main event loop
@@ -89,7 +90,6 @@ fn main() -> io::Result<()> {
                         }
                     }
 
-                    let mut bytes_written = 0;
                     if event.is_writable() {
                         println!("event is writable: {}", event.is_writable());
                         if !username_sent {
@@ -137,18 +137,42 @@ fn main() -> io::Result<()> {
 
                     if input.starts_with("send ") {
                         let message = format!("{}\n", &input[5..]);
-                        println!("message: {}", message);
                         let msg_len = message.len();
                         input_buffer.clear();
                         input_buffer.extend_from_slice(message.as_bytes());
                         bytes_to_send = msg_len;
+                        loop {
+                            match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
+                                // Continue writing until we hit a `WouldBlock`
+                                Ok(n) if n < bytes_to_send => {
+                                    println!("Stdin branch, bytes written: {}", n);
+                                    bytes_written += n;
+                                    continue;
+                                }
+                                // Our data buffer has been exhausted i.e. we have sent everything we need to
+                                Ok(v) => {
+                                    input_buffer.clear();
+                                    println!("in STDIN branch Write Ok: {}", v);
+                                    break;
+                                }
+                                // Encountered a `WouldBlock`, stop and poll again for readiness
+                                Err(ref err) if would_block(err) => {
+                                    println!("{}", io::ErrorKind::WouldBlock);
+                                    break;
+                                }
+                                Err(e) => {
+                                    eprintln!("Error writing to server: {}", e);
+                                    return Err(e);
+                                }
+                            }
+                        }
                         // God knows why this doesn't work with out re-registering.
-                        // Apparently, its not required, very inefficient. 
-                        poll.registry().reregister(
-                            &mut stream,
-                            SERVER,
-                            Interest::READABLE | Interest::WRITABLE,
-                        )?;
+                        // Apparently, its not required, very inefficient.
+                        // poll.registry().reregister(
+                        //     &mut stream,
+                        //     SERVER,
+                        //     Interest::READABLE | Interest::WRITABLE,
+                        // )?;
                         // ready_to_send = true;
                     } else if input == "leave" {
                         println!("Disconnecting...");
@@ -158,7 +182,9 @@ fn main() -> io::Result<()> {
                     }
                 }
 
-                _ => unreachable!(),
+                _token => {
+                    println!("spurious events")
+                }
             }
         }
     }
