@@ -1,14 +1,13 @@
 use clap::Parser;
 use mio::net::TcpStream;
-use mio::unix::SourceFd; // For handling STDIN on Unix-like systems
+use mio::unix::SourceFd; // For handling `Stdin` on Unix-like systems
 use mio::{Events, Interest, Poll, Token};
 use std::env;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
-// use std::time::Duration; // Unix-specific raw file descriptor support
 
-/// Struct for command-line argument parsing using `clap`.
+/// Command-line argument struct for configuring the chat application.
 #[derive(Parser)]
 struct Args {
     /// The host of the server (default: 127.0.0.1)
@@ -24,9 +23,11 @@ struct Args {
     username: String,
 }
 
+// Constants for the server and stdin events.
 const SERVER: Token = Token(0);
 const STDIN: Token = Token(1);
 
+/// Entry point of the chat application. Manages connection and polling of events.
 fn main() -> io::Result<()> {
     // Parse the command-line arguments
     let args = Args::parse();
@@ -54,14 +55,14 @@ fn main() -> io::Result<()> {
     poll.registry()
         .register(&mut stream, SERVER, Interest::READABLE | Interest::WRITABLE)?;
 
-    // Register STDIN as a source for polling
+    // Register `Stdin` as a source for polling
     poll.registry()
         .register(&mut SourceFd(&stdin_fd), STDIN, Interest::READABLE)?;
 
     const BUF_SIZE: usize = 512;
     let mut input_buffer = Vec::new();
     let mut server_buffer = [0; BUF_SIZE];
-    let mut bytes_to_send = 0;
+    let mut bytes_to_send;
     let mut bytes_written = 0;
     let mut username_sent = false;
 
@@ -91,46 +92,20 @@ fn main() -> io::Result<()> {
                     }
 
                     if event.is_writable() {
-                        println!("event is writable: {}", event.is_writable());
                         if !username_sent {
-                            let username_len = username.len();
-                            bytes_to_send = username_len;
                             input_buffer.extend_from_slice(username.as_bytes());
-                            println!("username copied to input buffer");
+                            // In this simple chat app, we assume the username is short and will be sent in a single write.
+                            // Note: This assumption may not hold in all cases, as `stream.write` does NOT guarantee that
+                            // the entire buffer will be written at once. According to the documentation, we should loop
+                            // until either a `WouldBlock` error occurs or the entire data buffer is sent.
+                            let _ = stream.write(&input_buffer.as_slice());
                             username_sent = true;
-                        }
-                        if !input_buffer.is_empty() {
-                            loop {
-                                match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
-                                    // Continue writing until we hit a `WouldBlock`
-                                    Ok(n) if n < bytes_to_send => {
-                                        println!("bytes written: {}", n);
-                                        bytes_written += n;
-                                        continue;
-                                    }
-                                    // Our data buffer has been exhausted i.e. we have sent everything we need to
-                                    Ok(v) => {
-                                        input_buffer.clear();
-                                        println!("Write Ok: {}", v);
-                                        break;
-                                    }
-                                    // Encountered a `WouldBlock`, stop and poll again for readiness
-                                    Err(ref err) if would_block(err) => {
-                                        println!("{}", io::ErrorKind::WouldBlock);
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Error writing to server: {}", e);
-                                        return Err(e);
-                                    }
-                                }
-                            }
                         }
                     }
                 }
 
                 STDIN => {
-                    // Handle input from STDIN
+                    // Handle input from `Stdin`
                     let mut input = String::new();
                     stdin.read_line(&mut input).expect("Failed to read input");
                     input = input.trim().to_string();
@@ -141,39 +116,34 @@ fn main() -> io::Result<()> {
                         input_buffer.clear();
                         input_buffer.extend_from_slice(message.as_bytes());
                         bytes_to_send = msg_len;
-                        loop {
-                            match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
-                                // Continue writing until we hit a `WouldBlock`
-                                Ok(n) if n < bytes_to_send => {
-                                    println!("Stdin branch, bytes written: {}", n);
-                                    bytes_written += n;
-                                    continue;
-                                }
-                                // Our data buffer has been exhausted i.e. we have sent everything we need to
-                                Ok(v) => {
-                                    input_buffer.clear();
-                                    println!("in STDIN branch Write Ok: {}", v);
-                                    break;
-                                }
-                                // Encountered a `WouldBlock`, stop and poll again for readiness
-                                Err(ref err) if would_block(err) => {
-                                    println!("{}", io::ErrorKind::WouldBlock);
-                                    break;
-                                }
-                                Err(e) => {
-                                    eprintln!("Error writing to server: {}", e);
-                                    return Err(e);
-                                }
+                        // If we receive a write readiness event but skip writing due to `!input_buffer.is_empty()` 
+                        // or an incomplete `input_buffer.extend_from_slice(message.as_bytes())` call, the code may 
+                        // not write to the stream as expected since we may miss the SERVER token.
+
+                        // To handle this, we write to the stream as soon as user input is received from stdin. 
+                        // Note: there are more robust solutions for handling this, but for a basic chat app, 
+                        // this approach should be sufficient while maintaining asynchronous behavior.
+                        match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
+                            // Continue writing until we hit a `WouldBlock`
+                            Ok(n) if n < bytes_to_send => {
+                                bytes_written += n;
+                                continue;
+                            }
+                            // Our data buffer has been exhausted i.e. we have sent everything we need to
+                            Ok(_v) => {
+                                input_buffer.clear();
+                                break;
+                            }
+                            // Encountered a `WouldBlock`, stop and poll again for readiness
+                            Err(ref err) if would_block(err) => {
+                                println!("{}", io::ErrorKind::WouldBlock);
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("Error writing to server: {}", e);
+                                return Err(e);
                             }
                         }
-                        // God knows why this doesn't work with out re-registering.
-                        // Apparently, its not required, very inefficient.
-                        // poll.registry().reregister(
-                        //     &mut stream,
-                        //     SERVER,
-                        //     Interest::READABLE | Interest::WRITABLE,
-                        // )?;
-                        // ready_to_send = true;
                     } else if input == "leave" {
                         println!("Disconnecting...");
                         return Ok(());
@@ -183,7 +153,7 @@ fn main() -> io::Result<()> {
                 }
 
                 _token => {
-                    println!("spurious events")
+                    println!("Got a spurious event!")
                 }
             }
         }

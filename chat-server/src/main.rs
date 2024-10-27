@@ -4,8 +4,9 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-/// Type alias for the list of users connected to the chat server
+/// Type alias for the list of users connected to the chat server.
 type UserList = Arc<Mutex<HashMap<Arc<String>, TcpStream>>>;
+/// Type alias for the list of active users/connections. 
 type ActiveUsers = Arc<Mutex<HashSet<Arc<String>>>>;
 
 /// Handles a connected client.
@@ -20,12 +21,10 @@ fn handle_client(
 ) {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
-        println!("in reader.lines");
         let message = match line {
             Ok(msg) => msg,
             Err(e) => e.to_string(),
         };
-        println!("message: {}", message);
         if message == "/leave" {
             break;
         }
