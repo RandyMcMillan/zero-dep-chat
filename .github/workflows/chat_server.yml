@@ -32,11 +32,10 @@ jobs:
 
       - name: Run chat-server
         run: |
-          cd chat-server
           nohup ./target/release/chat-server &
           sleep 5  # Wait for the server to start
 
-      - name: Send test message from async-chat-client
+      - name: Test async-chat-client connection to server
         run: |
           cd async-chat-client
           # Adjust this command to fit your client logic

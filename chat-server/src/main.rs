@@ -70,7 +70,7 @@ fn main() {
         let mut username = String::new();
         loop {
             let bytes_read = stream.read(&mut buffer).expect("Failed to read username");
-            username.push_str(&String::from_utf8_lossy(&buffer[..bytes_read]).trim());
+            username.push_str(String::from_utf8_lossy(&buffer[..bytes_read]).trim());
 
             if username.contains(" ") || username.contains("/leave") {
                 writeln!(&mut stream, "Invalid username").expect("Failed to write");

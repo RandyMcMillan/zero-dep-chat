@@ -111,7 +111,7 @@ fn main() -> io::Result<()> {
                     input = input.trim().to_string();
 
                     if let Some(stripped) = input.strip_prefix("send ") {
-                        let message = format!("{}\n", stripped);
+                        let message = format!("{stripped}\n");
                         let msg_len = message.len();
                         input_buffer.clear();
                         input_buffer.extend_from_slice(message.as_bytes());
