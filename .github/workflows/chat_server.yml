@@ -1,0 +1,44 @@
+name: Build and Test Rust Workspace
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt
+
+      - name: Build chat-server and async-chat-client
+        run: |
+          cd chat-server
+          cargo build --release
+          cd ../async-chat-client
+          cargo build --release
+
+      - name: Run chat-server
+        run: |
+          cd chat-server
+          nohup ./target/release/chat-server &
+          sleep 5  # Wait for the server to start
+
+      - name: Send test message from async-chat-client
+        run: |
+          cd async-chat-client
+          # Adjust this command to fit your client logic
+          cargo run -- --host 127.0.0.1 --port 12345 --username "testuser"
+

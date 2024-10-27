@@ -37,8 +37,8 @@ fn main() -> io::Result<()> {
     let username = env::var("USERNAME").unwrap_or(args.username);
 
     // Create a stream socket and initiate a connection
-    let address = format!("{}:{}", host, port);
-    let username = format!("{}\n", username);
+    let address = format!("{host}:{port}");
+    let username = format!("{username}\n");
     let server_address: SocketAddr = address.parse().unwrap();
     let mut stream = TcpStream::connect(server_address)?;
     println!("Connecting to server at {} as {}", &address, &username);
@@ -85,7 +85,7 @@ fn main() -> io::Result<()> {
                             }
                             Err(ref err) if would_block(err) => {}
                             Err(e) => {
-                                eprintln!("Error reading from server: {}", e);
+                                eprintln!("Error reading from server: {e}");
                                 return Err(e);
                             }
                         }
@@ -110,18 +110,18 @@ fn main() -> io::Result<()> {
                     stdin.read_line(&mut input).expect("Failed to read input");
                     input = input.trim().to_string();
 
-                    if input.starts_with("send ") {
-                        let message = format!("{}\n", &input[5..]);
+                    if let Some(stripped) = input.strip_prefix("send ") {
+                        let message = format!("{}\n", stripped);
                         let msg_len = message.len();
                         input_buffer.clear();
                         input_buffer.extend_from_slice(message.as_bytes());
                         bytes_to_send = msg_len;
-                        // If we receive a write readiness event but skip writing due to `!input_buffer.is_empty()` 
-                        // or an incomplete `input_buffer.extend_from_slice(message.as_bytes())` call, the code may 
+                        // If we receive a write readiness event but skip writing due to `!input_buffer.is_empty()`
+                        // or an incomplete `input_buffer.extend_from_slice(message.as_bytes())` call, the code may
                         // not write to the stream as expected since we may miss the SERVER token.
 
-                        // To handle this, we write to the stream as soon as user input is received from stdin. 
-                        // Note: there are more robust solutions for handling this, but for a basic chat app, 
+                        // To handle this, we write to the stream as soon as user input is received from stdin.
+                        // Note: there are more robust solutions for handling this, but for a basic chat app,
                         // this approach should be sufficient while maintaining asynchronous behavior.
                         match stream.write(&input_buffer[bytes_written..bytes_to_send]) {
                             // Continue writing until we hit a `WouldBlock`
@@ -140,7 +140,7 @@ fn main() -> io::Result<()> {
                                 break;
                             }
                             Err(e) => {
-                                eprintln!("Error writing to server: {}", e);
+                                eprintln!("Error writing to server: {e}");
                                 return Err(e);
                             }
                         }
@@ -162,4 +162,45 @@ fn main() -> io::Result<()> {
 
 fn would_block(err: &io::Error) -> bool {
     err.kind() == io::ErrorKind::WouldBlock
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_args_parsing() {
+        // Arrange: create a sample set of arguments
+        let args = Args::parse_from(&[
+            "test",
+            "--host",
+            "192.168.0.1",
+            "--port",
+            "9000",
+            "--username",
+            "testuser",
+        ]);
+
+        // Assert: verify the parsed values match expected inputs
+        assert_eq!(args.host, "192.168.0.1");
+        assert_eq!(args.port, "9000");
+        assert_eq!(args.username, "testuser");
+    }
+
+    #[test]
+    fn test_username_initialization() {
+        // Arrange: simulate username setup
+        let username = "testuser\n";
+        let mut input_buffer = Vec::new();
+
+        // Act: extend input_buffer with the username bytes
+        input_buffer.extend_from_slice(username.as_bytes());
+
+        // Assert: check that the input buffer has the username content
+        assert_eq!(
+            String::from_utf8(input_buffer.clone()).unwrap(),
+            "testuser\n"
+        );
+    }
 }

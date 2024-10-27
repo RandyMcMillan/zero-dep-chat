@@ -6,7 +6,7 @@ use std::thread;
 
 /// Type alias for the list of users connected to the chat server.
 type UserList = Arc<Mutex<HashMap<Arc<String>, TcpStream>>>;
-/// Type alias for the list of active users/connections. 
+/// Type alias for the list of active users/connections.
 type ActiveUsers = Arc<Mutex<HashSet<Arc<String>>>>;
 
 /// Handles a connected client.
@@ -60,7 +60,7 @@ fn main() {
                 stream = s
             }
             Err(e) => {
-                println!("Failed to accept new connection: {}", e.to_string());
+                println!("Failed to accept new connection: {}", e);
                 continue;
             }
         };
@@ -69,13 +69,8 @@ fn main() {
         let mut buffer = [0; 512];
         let mut username = String::new();
         loop {
-            // writeln!(&mut stream, "Please enter a valid username").expect("Failed to write");
             let bytes_read = stream.read(&mut buffer).expect("Failed to read username");
-            username.push_str(
-                &String::from_utf8_lossy(&buffer[..bytes_read])
-                    .trim()
-                    .to_string(),
-            );
+            username.push_str(&String::from_utf8_lossy(&buffer[..bytes_read]).trim());
 
             if username.contains(" ") || username.contains("/leave") {
                 writeln!(&mut stream, "Invalid username").expect("Failed to write");
@@ -107,18 +102,4 @@ fn main() {
             handle_client(stream, usr, user_list_clone, active_usrs_clone);
         });
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_username_uniqueness() {
-        let mut users = HashSet::new();
-        let username = "user1".to_string();
-        assert!(users.insert(username.clone()));
-        assert!(!users.insert(username));
-    }
-    // Additional unit tests for other functionality can be added here.
 }

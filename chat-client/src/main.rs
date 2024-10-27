@@ -17,11 +17,11 @@ fn client_prompt(stream: Arc<Mutex<TcpStream>>) {
         match lines.next() {
             // Reading from `Stdin` is a blocking operation.
             Some(Ok(line)) => {
-                if line.starts_with("send ") {
-                    let msg = line[5..].to_string();
-                    let formatted_msg = format!("{}", msg);
+                if let Some(stripped) = line.strip_prefix("send ") {
+                    let msg = stripped.to_string();
+                    // let formatted_msg = format!("{}", msg);
                     let mut stream = stream.lock().unwrap();
-                    writeln!(stream, "{}", formatted_msg).expect("Failed to send message");
+                    writeln!(stream, "{}", msg).expect("Failed to send message");
                 } else if line.trim() == "leave" {
                     println!("Disconnecting from the server...");
                     break;
@@ -62,7 +62,7 @@ fn listen_for_messages(stream: Arc<Mutex<TcpStream>>, first_connect: bool) {
                     break;
                 }
                 Ok(_) => {
-                    print!("{}\n", buffer.trim());
+                    println!("{}", buffer.trim());
                 }
                 Err(e) => {
                     if first_connect {
@@ -85,7 +85,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let (host, port, username) = match args.len() {
         4 => {
-            if &args[3] == "" {
+            if args[3].is_empty() {
                 panic!("No username provided!")
             }
             (&args[1], &args[2], &args[3])
